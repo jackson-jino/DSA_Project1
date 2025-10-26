@@ -1,6 +1,7 @@
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 from collections import defaultdict
 import os
 
@@ -16,6 +17,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 STUDENTS_CSV = os.path.join(DATA_DIR, "students.csv")
 CLASSROOMS_CSV = os.path.join(DATA_DIR, "classrooms.csv")
 OUTPUT_CSV = os.path.join(OUTPUT_DIR, "seating_plan_proposed.csv")
+PDF_OUTPUT = os.path.join(OUTPUT_DIR, "seating_plan_all_classrooms.pdf")
 
 # -----------------------
 # Step 1: Load CSV files
@@ -91,7 +93,7 @@ for color, students_ids in color_groups.items():
                 print("Error: Not enough benches for this allocation.")
                 exit()
         benches_list[bench_index]['students'].append(sid)
-        s = [stu for stu in students if stu['id']==sid][0]
+        s = next(stu for stu in students if stu['id'] == sid)
         assignment.append({
             'student_id': sid,
             'name': s['name'],
@@ -111,7 +113,7 @@ for bench in benches_list:
     for i in range(len(ids)):
         for j in range(i+1, len(ids)):
             if G.has_edge(ids[i], ids[j]):
-                bench_conflicts +=1
+                bench_conflicts += 1
     if bench_conflicts > 0:
         print(f"[ALERT] {bench['classroom']} Bench {bench['bench_no']} has {bench_conflicts} potential conflicts.")
 
@@ -123,23 +125,28 @@ df_out.to_csv(OUTPUT_CSV, index=False)
 print(f"\n[INFO] Seating plan saved as {OUTPUT_CSV}")
 
 # -----------------------
-# Step 8: Visualization
+# Step 8: Visualization to single PDF
 # -----------------------
 departments = list(set([s['department'] for s in students]))
-dept_colors = {dept: plt.cm.tab20(i) for i, dept in enumerate(departments)}
+dept_colors = {dept: plt.cm.tab20(i % 20) for i, dept in enumerate(departments)}
 
-for cls in classrooms:
-    cls_name = cls['classroom']
-    cls_benches = [b for b in benches_list if b['classroom']==cls_name]
-    fig, ax = plt.subplots(figsize=(8, len(cls_benches)))
-    for i, bench in enumerate(cls_benches):
-        for j, sid in enumerate(bench['students']):
-            s = [stu for stu in students if stu['id']==sid][0]
-            rect = plt.Rectangle((j, -i), 1, 1, color=dept_colors[s['department']], alpha=0.8)
-            ax.add_patch(rect)
-            ax.text(j+0.5, -i+0.5, s['name'], ha='center', va='center', fontsize=8)
-    ax.set_xlim(0, max([len(b['students']) for b in cls_benches])+1)
-    ax.set_ylim(-len(cls_benches), 1)
-    ax.set_title(f"Classroom: {cls_name}")
-    ax.axis('off')
-    plt.show()
+with PdfPages(PDF_OUTPUT) as pdf:
+    for cls in classrooms:
+        cls_name = cls['classroom']
+        cls_benches = [b for b in benches_list if b['classroom'] == cls_name]
+        fig, ax = plt.subplots(figsize=(10, len(cls_benches)))
+        for i, bench in enumerate(cls_benches):
+            for j, sid in enumerate(bench['students']):
+                s = next(stu for stu in students if stu['id'] == sid)
+                rect = plt.Rectangle((j, -i), 1, 1, color=dept_colors[s['department']], alpha=0.8)
+                ax.add_patch(rect)
+                label = f"{s['name']}\nID:{s['id']}\nDept:{s['department']}\nCourse:{s['course']}"
+                ax.text(j + 0.5, -i + 0.5, label, ha='center', va='center', fontsize=6)
+        ax.set_xlim(0, max(len(b['students']) for b in cls_benches) + 1)
+        ax.set_ylim(-len(cls_benches), 1)
+        ax.set_title(f"Classroom: {cls_name}")
+        ax.axis('off')
+        pdf.savefig(fig)
+        plt.close(fig)
+
+print(f"[INFO] Seating plan PDF saved to {PDF_OUTPUT}")
